@@ -25,7 +25,8 @@ import numpy as np
 from merton_closed_form import MertonModel
 
 
-def run_smp_fbsde(model: MertonModel, N=50, M=40_000, x0=1.0, seed=0):
+def simulate_merton_gbm_exact(model: MertonModel, N=50, M=40_000, x0=1.0, seed=0):
+    """Simule exactement la richesse optimale de Merton sous controle proportionnel."""
     r, mu, sigma, T, p = model.r, model.mu, model.sigma, model.T, model.p
     dt = T / N
     rng = np.random.default_rng(seed)
@@ -35,12 +36,48 @@ def run_smp_fbsde(model: MertonModel, N=50, M=40_000, x0=1.0, seed=0):
     X = np.empty((M, N + 1))
     X[:, 0] = x0
     drift = r + pi_star * (mu - r)
+    diffusion = pi_star * sigma
+    for i in range(N):
+        X[:, i + 1] = X[:, i] * np.exp((drift - 0.5 * diffusion ** 2) * dt + diffusion * dW[:, i])
+    return X, dW
+
+
+def simulate_merton_euler(model: MertonModel, N=50, M=40_000, x0=1.0, seed=0):
+    """Ancien benchmark Euler avec floor, conserve pour comparaison si necessaire."""
+    r, mu, sigma, T = model.r, model.mu, model.sigma, model.T
+    dt = T / N
+    rng = np.random.default_rng(seed)
+    pi_star = model.pi_star
+    dW = rng.normal(scale=np.sqrt(dt), size=(M, N))
+    X = np.empty((M, N + 1))
+    X[:, 0] = x0
+    drift = r + pi_star * (mu - r)
     for i in range(N):
         X[:, i + 1] = X[:, i] * (1 + drift * dt + pi_star * sigma * dW[:, i])
-    X = np.maximum(X, 1e-8)
+    return np.maximum(X, 1e-8), dW
+
+
+def _eval_indices_from_times(T, N, eval_times=None):
+    if eval_times is None:
+        eval_times = [0.0, 0.25 * T, 0.5 * T, 0.75 * T, T]
+    idx = sorted(set(int(round(t / T * N)) for t in eval_times))
+    return [min(max(i, 0), N) for i in idx]
+
+
+def run_smp_fbsde(model: MertonModel, N=50, M=40_000, x0=1.0, seed=0,
+                  scheme="exact", eval_times=None, return_pathwise=False):
+    r, mu, sigma, T, p = model.r, model.mu, model.sigma, model.T, model.p
+    dt = T / N
+    pi_star = model.pi_star  # fraction constante
+
+    if scheme == "exact":
+        X, dW = simulate_merton_gbm_exact(model, N=N, M=M, x0=x0, seed=seed)
+    elif scheme == "euler":
+        X, dW = simulate_merton_euler(model, N=N, M=M, x0=x0, seed=seed)
+    else:
+        raise ValueError(f"Unknown scheme: {scheme}")
 
     # --- regression backward pour Y_t = p_t = V_x(t, X*_t) ---
-    Y = model.p * X[:, -1] ** (p - 1) / model.p * model.p  # = X_T^(p-1) (terminal: p_T = U'(X_T) = X_T^{p-1})
     Y = X[:, -1] ** (p - 1)
     basis = lambda x: np.column_stack([np.ones_like(x), x ** (p - 1)])
 
@@ -48,6 +85,12 @@ def run_smp_fbsde(model: MertonModel, N=50, M=40_000, x0=1.0, seed=0):
     phi_hat = np.empty(N + 1)
     phi_hat[N] = 1.0
     Z_estimates = np.empty(N)  # q_t estimated at each step (mean over paths, for diagnostics)
+    eval_indices = _eval_indices_from_times(T, N, eval_times)
+    p_hat_eval = {}
+    q_hat_eval = {}
+    if N in eval_indices:
+        p_hat_eval[N] = Y.copy()
+        q_hat_eval[N] = np.full(M, np.nan)
 
     for i in range(N - 1, -1, -1):
         Xi = X[:, i]
@@ -63,8 +106,116 @@ def run_smp_fbsde(model: MertonModel, N=50, M=40_000, x0=1.0, seed=0):
         Y = cond_exp_Y + driver * dt
         phi_hat[i] = np.mean(Y / (Xi ** (p - 1)))
         Z_estimates[i] = np.mean(cond_exp_Z)
+        if i in eval_indices:
+            p_hat_eval[i] = Y.copy()
+            q_hat_eval[i] = cond_exp_Z.copy()
 
+    if return_pathwise:
+        return {
+            "t_grid": t_grid,
+            "X": X,
+            "phi_hat": phi_hat,
+            "Z_estimates": Z_estimates,
+            "p_hat_eval": p_hat_eval,
+            "q_hat_eval": q_hat_eval,
+            "eval_indices": eval_indices,
+            "scheme": scheme,
+            "seed": seed,
+            "N": N,
+            "M": M,
+            "dt": dt,
+        }
     return t_grid, X, phi_hat, Z_estimates
+
+
+def _error_summary(errors, scale=None):
+    abs_err = np.abs(errors)
+    rmse = float(np.sqrt(np.mean(errors ** 2)))
+    denom = float(scale if scale is not None else 0.0)
+    return {
+        "rmse": rmse,
+        "relative_rmse": float(rmse / denom) if denom > 0 else np.nan,
+        "mae": float(np.mean(abs_err)),
+        "median_abs_error": float(np.median(abs_err)),
+        "q05_abs_error": float(np.quantile(abs_err, 0.05)),
+        "q50_abs_error": float(np.quantile(abs_err, 0.50)),
+        "q95_abs_error": float(np.quantile(abs_err, 0.95)),
+    }
+
+
+def pathwise_diagnostics(model: MertonModel, result):
+    """Diagnostics pathwise aux temps stockes par run_smp_fbsde(..., return_pathwise=True)."""
+    r, mu, sigma = model.r, model.mu, model.sigma
+    rows = []
+    t_grid = result["t_grid"]
+    X = result["X"]
+    alpha = model.pi_star
+
+    for idx in result["eval_indices"]:
+        t = t_grid[idx]
+        Xt = X[:, idx]
+        p_hat = result["p_hat_eval"][idx]
+        q_hat = result["q_hat_eval"][idx]
+        p_exact = model.Vx(t, Xt)
+        pi_exact = alpha * Xt
+        q_exact = sigma * pi_exact * model.Vxx(t, Xt)
+
+        p_stats = _error_summary(p_hat - p_exact, np.sqrt(np.mean(p_exact ** 2)))
+        row = {
+            "t_index": idx,
+            "t": float(t),
+            "seed": result["seed"],
+            "N": result["N"],
+            "M": result["M"],
+            "dt": result["dt"],
+            "scheme": result["scheme"],
+            "RMSE_p": p_stats["rmse"],
+            "relative_RMSE_p": p_stats["relative_rmse"],
+            "MAE_p": p_stats["mae"],
+            "median_abs_error_p": p_stats["median_abs_error"],
+            "q05_abs_error_p": p_stats["q05_abs_error"],
+            "q50_abs_error_p": p_stats["q50_abs_error"],
+            "q95_abs_error_p": p_stats["q95_abs_error"],
+        }
+
+        if np.isfinite(q_hat).all():
+            q_stats = _error_summary(q_hat - q_exact, np.sqrt(np.mean(q_exact ** 2)))
+            H_pi_hat_path = p_hat * (mu - r) + q_hat * sigma
+            H_stats = _error_summary(H_pi_hat_path, 1.0)
+            pi_reconstructed = -(mu - r) / sigma ** 2 * p_hat / model.Vxx(t, Xt)
+            pi_stats = _error_summary(pi_reconstructed - pi_exact, np.sqrt(np.mean(pi_exact ** 2)))
+            row.update({
+                "RMSE_q": q_stats["rmse"],
+                "relative_RMSE_q": q_stats["relative_rmse"],
+                "MAE_q": q_stats["mae"],
+                "median_abs_error_q": q_stats["median_abs_error"],
+                "q05_abs_error_q": q_stats["q05_abs_error"],
+                "q50_abs_error_q": q_stats["q50_abs_error"],
+                "q95_abs_error_q": q_stats["q95_abs_error"],
+                "RMSE_Hpi": H_stats["rmse"],
+                "MAE_Hpi": H_stats["mae"],
+                "median_abs_error_Hpi": H_stats["median_abs_error"],
+                "q05_abs_error_Hpi": H_stats["q05_abs_error"],
+                "q50_abs_error_Hpi": H_stats["q50_abs_error"],
+                "q95_abs_error_Hpi": H_stats["q95_abs_error"],
+                "RMSE_pi_reconstructed": pi_stats["rmse"],
+                "relative_RMSE_pi_reconstructed": pi_stats["relative_rmse"],
+                "MAE_pi_reconstructed": pi_stats["mae"],
+                "median_abs_error_pi_reconstructed": pi_stats["median_abs_error"],
+                "q05_abs_error_pi_reconstructed": pi_stats["q05_abs_error"],
+                "q50_abs_error_pi_reconstructed": pi_stats["q50_abs_error"],
+                "q95_abs_error_pi_reconstructed": pi_stats["q95_abs_error"],
+            })
+        else:
+            row.update({
+                "RMSE_q": np.nan,
+                "relative_RMSE_q": np.nan,
+                "RMSE_Hpi": np.nan,
+                "RMSE_pi_reconstructed": np.nan,
+                "relative_RMSE_pi_reconstructed": np.nan,
+            })
+        rows.append(row)
+    return rows
 
 
 def diagnostics(model: MertonModel, t_grid, X, phi_hat, Z_estimates, t_index=0):
@@ -91,16 +242,16 @@ def diagnostics(model: MertonModel, t_grid, X, phi_hat, Z_estimates, t_index=0):
     H_pi = p_bsde * (mu - r) + q_bsde * sigma if not np.isnan(q_bsde) else np.nan
 
     # pi_SMP reconstruit vs pi exact
-    pi_smp = -(mu - r) / sigma ** 2 * p_bsde / Vxx_exact if Vxx_exact != 0 else np.nan
+    pi_reconstructed = -(mu - r) / sigma ** 2 * p_bsde / Vxx_exact if Vxx_exact != 0 else np.nan
     pi_exact_amount = model.pi_amount(np.mean(Xt))
-    err_pi = abs(pi_smp - pi_exact_amount)
+    err_pi = abs(pi_reconstructed - pi_exact_amount)
 
     return {
         "t": t,
         "p_bsde": p_bsde, "Vx_exact": Vx_exact, "err_p_vs_Vx": err_p_vs_Vx,
         "q_bsde": q_bsde, "q_theory": q_theory_mean, "err_q_vs_theory": err_q_vs_theory,
         "H_pi": H_pi,
-        "pi_smp": pi_smp, "pi_exact": pi_exact_amount, "err_pi": err_pi,
+        "pi_reconstructed": pi_reconstructed, "pi_exact": pi_exact_amount, "err_pi": err_pi,
     }
 
 

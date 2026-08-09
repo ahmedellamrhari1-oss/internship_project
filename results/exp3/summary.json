@@ -1,0 +1,12 @@
+{
+  "diagnostics_seed": 0,
+  "fixed_N": 50,
+  "fixed_M": 40000,
+  "mid_time": 0.5,
+  "mid_relative_RMSE_p": 0.0010149190566464419,
+  "mid_relative_RMSE_q": 0.24892523134629863,
+  "mid_RMSE_Hpi": 0.014095414740149106,
+  "mid_relative_RMSE_pi_reconstructed": 0.0009864570585594197,
+  "seed_count": 5,
+  "n_figures": 4
+}

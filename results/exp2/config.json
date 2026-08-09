@@ -1,0 +1,48 @@
+{
+  "generated_at_utc": "2026-08-09T00:58:04.037328+00:00",
+  "script": "exp2_hjb_benchmark.py",
+  "python": "3.11.0rc1",
+  "numpy": "1.26.4",
+  "pandas": "3.0.0",
+  "matplotlib": "3.6.3",
+  "financial_parameters": {
+    "r": 0.02,
+    "mu": 0.08,
+    "sigma": 0.2,
+    "gamma": 3.0,
+    "T": 1.0,
+    "x0": 1.0
+  },
+  "numerical_parameters": {
+    "space_Ny": [
+      51,
+      101,
+      201,
+      401,
+      801
+    ],
+    "space_Nt": 1200,
+    "time_Ny": 801,
+    "time_Nt": [
+      40,
+      50,
+      60,
+      75,
+      90,
+      100,
+      110,
+      125,
+      150,
+      175,
+      200,
+      250,
+      300,
+      400,
+      600,
+      800,
+      1200
+    ],
+    "y_min": -3.0,
+    "y_max": 3.0
+  }
+}
