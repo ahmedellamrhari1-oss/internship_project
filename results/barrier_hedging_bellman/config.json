@@ -1,0 +1,37 @@
+{
+  "script": "exp_barrier_hedging_bellman.py",
+  "python": "3.11.0rc1",
+  "numpy": "1.26.4",
+  "pandas": "3.0.0",
+  "model": {
+    "S0": 100.0,
+    "K": 100.0,
+    "B": 80.0,
+    "T": 1.0,
+    "r": 0.02,
+    "mu": 0.08,
+    "sigma": 0.2
+  },
+  "lambda0": {
+    "N": 24,
+    "Ns": 201,
+    "n_quad": 7
+  },
+  "costs": {
+    "N": 4,
+    "Ns": 15,
+    "Nb": 17,
+    "Nq": 9,
+    "n_quad": 3,
+    "lambdas": [
+      0.0005,
+      0.002,
+      0.01
+    ]
+  },
+  "backtest": {
+    "n_paths": 2000,
+    "n_fine_steps": 252,
+    "seed": 24680
+  }
+}

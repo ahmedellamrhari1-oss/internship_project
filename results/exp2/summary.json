@@ -1,9 +1,0 @@
-{
-  "best_space_error_V": 5.041948219071551e-06,
-  "best_space_error_pi": 2.4999656397795007e-05,
-  "space_last_order_V": 1.4777964348686663,
-  "space_last_order_pi": 1.999940480099619,
-  "first_time_sweep_with_no_concavity_violations": 175,
-  "max_lambda_without_concavity_violations": 101.58730158730592,
-  "n_figures": 5
-}

@@ -1,0 +1,74 @@
+{
+  "generated_at_utc": "2026-08-09T17:57:22.626727+00:00",
+  "runtime_seconds": 25.250070499954745,
+  "results_dir": "results\\hedging_transaction_costs",
+  "n_paths": 20000,
+  "n_fine_steps": 252,
+  "rmse_delta_lambda_0_by_frequency": {
+    "12": 1.9452273531016606,
+    "26": 1.3340969945107275,
+    "52": 0.9526999238362962,
+    "126": 0.6164344454058871,
+    "252": 0.4355211980760002
+  },
+  "lambda_0_rmse_decreases_with_frequency": true,
+  "best_by_lambda": [
+    {
+      "lambda": 0.0,
+      "best_delta_frequency": 252,
+      "best_delta_J": 0.18967871397355462,
+      "best_delta_rmse": 0.4355211980760002,
+      "best_delta_cost": 0.0,
+      "best_optimized_frequency": 252,
+      "best_optimized_band": 0.0,
+      "best_optimized_J": 0.18967871397355462,
+      "best_optimized_rmse": 0.4355211980760002,
+      "best_optimized_cost": 0.0,
+      "optimized_improves_J": false,
+      "optimized_trades_less": false
+    },
+    {
+      "lambda": 0.0005,
+      "best_delta_frequency": 252,
+      "best_delta_J": 0.5537904102812423,
+      "best_delta_rmse": 0.5284632557834543,
+      "best_delta_cost": 0.27451699756799364,
+      "best_optimized_frequency": 252,
+      "best_optimized_band": 0.02,
+      "best_optimized_J": 0.5236363931440244,
+      "best_optimized_rmse": 0.5414962052047423,
+      "best_optimized_cost": 0.2304182528928881,
+      "optimized_improves_J": true,
+      "optimized_trades_less": true
+    },
+    {
+      "lambda": 0.002,
+      "best_delta_frequency": 52,
+      "best_delta_J": 1.849990542116449,
+      "best_delta_rmse": 1.1365800798919075,
+      "best_delta_cost": 0.5581762641093541,
+      "best_optimized_frequency": 126,
+      "best_optimized_band": 0.05,
+      "best_optimized_J": 1.640901191979069,
+      "best_optimized_rmse": 1.0339264689762782,
+      "best_optimized_cost": 0.5718972487293142,
+      "optimized_improves_J": true,
+      "optimized_trades_less": true
+    },
+    {
+      "lambda": 0.01,
+      "best_delta_frequency": 12,
+      "best_delta_J": 8.630394804037726,
+      "best_delta_rmse": 2.6513878439906695,
+      "best_delta_cost": 1.6005373047762366,
+      "best_optimized_frequency": 26,
+      "best_optimized_band": 0.1,
+      "best_optimized_J": 7.8241076111191,
+      "best_optimized_rmse": 2.4887458015189408,
+      "best_optimized_cost": 1.630251946540945,
+      "optimized_improves_J": true,
+      "optimized_trades_less": true
+    }
+  ],
+  "n_figures": 12
+}

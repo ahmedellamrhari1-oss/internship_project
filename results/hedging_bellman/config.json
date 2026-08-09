@@ -1,0 +1,52 @@
+{
+  "generated_at_utc": "2026-08-09T18:02:24.340817+00:00",
+  "script": "exp_hedging_bellman.py",
+  "python": "3.11.0rc1",
+  "numpy": "1.26.4",
+  "pandas": "3.0.0",
+  "model": {
+    "S0": 100.0,
+    "K": 100.0,
+    "T": 1.0,
+    "r": 0.02,
+    "mu_real": 0.08,
+    "sigma": 0.2
+  },
+  "measure_note": "Bellman expectations and backtests use real drift mu. Black-Scholes price/delta benchmarks use risk-neutral drift r.",
+  "bellman": {
+    "state": [
+      "S",
+      "cash",
+      "q"
+    ],
+    "control": "a=q_prime",
+    "n_steps": 12,
+    "s_grid": [
+      44.99999999999999,
+      220.00000000000009,
+      25
+    ],
+    "cash_grid": [
+      -250.0,
+      150.0,
+      35
+    ],
+    "q_grid": [
+      0.0,
+      1.0,
+      17
+    ],
+    "quadrature": "5-point Gauss-Hermite for normal shocks",
+    "lambdas": [
+      0.0,
+      0.0005,
+      0.002,
+      0.01
+    ]
+  },
+  "backtest": {
+    "n_paths": 10000,
+    "seed": 12345,
+    "fine_steps": 252
+  }
+}

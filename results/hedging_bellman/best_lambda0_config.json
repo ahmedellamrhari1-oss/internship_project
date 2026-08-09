@@ -1,0 +1,18 @@
+{
+  "n_steps": 48,
+  "Ns": 401,
+  "Nq": 0,
+  "Nb": 0,
+  "n_quad": 15,
+  "control": "continuous",
+  "interpolation": "linear in S for quadratic value coefficients; analytic quadratic minimization in wealth",
+  "rmse_policy_interior": 0.0031058312935110383,
+  "mae_policy_interior": 0.0020144844453116287,
+  "max_abs_policy_interior": 0.027150528100195026,
+  "rmse_policy_global": 0.14179650550036116,
+  "mae_policy_global": 0.06329441825650463,
+  "max_abs_policy_global": 0.8246212625845168,
+  "rmse_hedge_bellman": 0.9651989579970438,
+  "rmse_hedge_delta_same_frequency": 0.9873825315814172,
+  "rmse_hedge_ratio": 0.9775329491105705
+}

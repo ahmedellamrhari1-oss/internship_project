@@ -1,0 +1,2 @@
+n_steps,Ns,Nq,Nb,n_quad,control,interpolation,rmse_policy_interior,mae_policy_interior,max_abs_policy_interior,rmse_policy_global,mae_policy_global,max_abs_policy_global,rmse_hedge_bellman,rmse_hedge_delta_same_frequency,rmse_hedge_ratio
+48,401,0,0,15,continuous,linear in S for quadratic value coefficients; analytic quadratic minimization in wealth,0.0031058312935110383,0.0020144844453116287,0.027150528100195026,0.14179650550036116,0.06329441825650463,0.8246212625845168,0.9651989579970438,0.9873825315814172,0.9775329491105705

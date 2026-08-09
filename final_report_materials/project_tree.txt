@@ -1,0 +1,238 @@
+﻿Folder PATH listing for volume Windows
+Volume serial number is 000000BA 8C64:A6D0
+C:.
+|   .gitignore
+|   exp_barrier_hedging_bellman.py
+|   exp_hedging_bellman.py
+|   exp_hedging_transaction_costs.py
+|   exp_hjb_merton_1d.py
+|   exp_merton_aapl_empirical.py
+|   
++---final_report_materials
+|   |   data_sources.md
+|   |   equations.md
+|   |   key_results.md
+|   |   limitations.md
+|   |   methodology.md
+|   |   project_tree.txt
+|   |   README.md
+|   |   
+|   +---configs
+|   |       exp1_config.json
+|   |       exp1_summary.json
+|   |       exp2_config.json
+|   |       exp2_summary.json
+|   |       exp3a_config.json
+|   |       exp3a_summary.json
+|   |       exp3b_config.json
+|   |       exp3b_summary.json
+|   |       exp4_config.json
+|   |       exp4_summary.json
+|   |       
+|   +---figures
+|   |       exp1_control_error_vs_refinement.png
+|   |       exp1_control_gamma3.png
+|   |       exp1_value_error_vs_Nt.png
+|   |       exp1_value_error_vs_Nx.png
+|   |       exp1_value_gamma3.png
+|   |       exp2_drawdowns.png
+|   |       exp2_rolling_estimates.png
+|   |       exp2_unconstrained_weights.png
+|   |       exp2_wealth_curves.png
+|   |       exp2_weight_distribution.png
+|   |       exp3a_cost_vs_frequency.png
+|   |       exp3a_rmse_vs_frequency.png
+|   |       exp3a_turnover_vs_lambda.png
+|   |       exp3b_bellman_vs_delta_lambda0.png
+|   |       exp3b_buy_hold_sell_lambda001_mid.png
+|   |       exp3b_cost_vs_rmse.png
+|   |       exp3b_hold_width_vs_lambda.png
+|   |       exp4_bellman_vs_deltas_t0.png
+|   |       exp4_brownian_bridge_vs_naive.png
+|   |       exp4_cost_vs_rmse.png
+|   |       exp4_hold_near_barrier_vs_far.png
+|   |       exp4_knockout_trajectory_lambda0.png
+|   |       exp4_terminal_errors_near_barrier.png
+|   |       exp4_value_profile_t0.png
+|   |       
+|   \---tables
+|           exp1_convergence_space.csv
+|           exp1_convergence_time.csv
+|           exp1_profile_results.csv
+|           exp2_monthly_weights.csv
+|           exp2_strategy_metrics.csv
+|           exp2_unconstrained_out_of_bounds.csv
+|           exp3a_heuristic_best_by_lambda.csv
+|           exp3a_heuristic_metrics.csv
+|           exp3b_bellman_lambda0_validation.csv
+|           exp3b_cost_backtest_comparison.csv
+|           exp3b_hold_width_by_lambda.csv
+|           exp3b_policy_stability.csv
+|           exp4_backtest_comparison.csv
+|           exp4_barrier_crossing_diagnostics.csv
+|           exp4_convergence_space.csv
+|           exp4_convergence_time.csv
+|           exp4_cost_hold_summary.csv
+|           exp4_policy_profiles.csv
+|           
++---results
+|   +---barrier_hedging_bellman
+|   |   |   backtest_comparison.csv
+|   |   |   barrier_crossing_diagnostics.csv
+|   |   |   buy_hold_sell_policy.csv
+|   |   |   config.json
+|   |   |   convergence_S.csv
+|   |   |   convergence_time.csv
+|   |   |   example_trajectories.csv
+|   |   |   metrics.csv
+|   |   |   policy_profiles.csv
+|   |   |   summary.json
+|   |   |   terminal_error_samples.csv
+|   |   |   
+|   |   \---figures
+|   |           barrier_crossing_bridge_vs_naive.png
+|   |           bellman_vs_deltas_t0.png
+|   |           cost_vs_rmse.png
+|   |           hold_near_barrier_vs_far.png
+|   |           terminal_errors_near_barrier.png
+|   |           trajectory_lambda_0.0005_path_0.png
+|   |           trajectory_lambda_0.0005_path_11.png
+|   |           trajectory_lambda_0.002_path_0.png
+|   |           trajectory_lambda_0.002_path_11.png
+|   |           trajectory_lambda_0.01_path_0.png
+|   |           trajectory_lambda_0.01_path_11.png
+|   |           trajectory_lambda_0_path_0.png
+|   |           trajectory_lambda_0_path_11.png
+|   |           value_profile_t_0.00.png
+|   |           value_profile_t_0.50.png
+|   |           value_profile_t_0.96.png
+|   |           
+|   +---hedging_bellman
+|   |   |   backtest_cost_comparison.csv
+|   |   |   backtest_metrics.csv
+|   |   |   best_lambda0_config.json
+|   |   |   config.json
+|   |   |   convergence_cash.csv
+|   |   |   convergence_costs_cash.csv
+|   |   |   convergence_costs_q.csv
+|   |   |   convergence_costs_S.csv
+|   |   |   convergence_costs_time.csv
+|   |   |   convergence_q.csv
+|   |   |   convergence_quadrature.csv
+|   |   |   convergence_S.csv
+|   |   |   convergence_time.csv
+|   |   |   example_trajectories.csv
+|   |   |   hold_region_metrics.csv
+|   |   |   hold_region_summary.csv
+|   |   |   interpolation_cost_diagnostics.csv
+|   |   |   policy_error_metrics.csv
+|   |   |   policy_slices.csv
+|   |   |   policy_stability.csv
+|   |   |   summary.json
+|   |   |   terminal_error_samples.csv
+|   |   |   
+|   |   \---figures
+|   |           backtest_error_distribution_lambda_0.0005.png
+|   |           backtest_error_distribution_lambda_0.002.png
+|   |           backtest_error_distribution_lambda_0.01.png
+|   |           bellman_vs_delta_lambda_0.png
+|   |           buy_hold_sell_lambda_0.0005_n_0.png
+|   |           buy_hold_sell_lambda_0.0005_n_11.png
+|   |           buy_hold_sell_lambda_0.0005_n_6.png
+|   |           buy_hold_sell_lambda_0.002_n_0.png
+|   |           buy_hold_sell_lambda_0.002_n_11.png
+|   |           buy_hold_sell_lambda_0.002_n_6.png
+|   |           buy_hold_sell_lambda_0.01_n_0.png
+|   |           buy_hold_sell_lambda_0.01_n_11.png
+|   |           buy_hold_sell_lambda_0.01_n_6.png
+|   |           cost_vs_rmse.png
+|   |           hold_width_vs_lambda.png
+|   |           policy_lambda_0.0005_n_0.png
+|   |           policy_lambda_0.0005_n_11.png
+|   |           policy_lambda_0.0005_n_6.png
+|   |           policy_lambda_0.002_n_0.png
+|   |           policy_lambda_0.002_n_11.png
+|   |           policy_lambda_0.002_n_6.png
+|   |           policy_lambda_0.01_n_0.png
+|   |           policy_lambda_0.01_n_11.png
+|   |           policy_lambda_0.01_n_6.png
+|   |           trajectory_lambda_0.0005.png
+|   |           trajectory_lambda_0.002.png
+|   |           trajectory_lambda_0.01.png
+|   |           
+|   +---hedging_transaction_costs
+|   |   |   aggregate_comparisons.csv
+|   |   |   config.json
+|   |   |   example_hedge_paths.csv
+|   |   |   metrics.csv
+|   |   |   sample_path.csv
+|   |   |   summary.json
+|   |   |   terminal_error_samples.csv
+|   |   |   
+|   |   \---figures
+|   |           criterion_J_vs_frequency.png
+|   |           example_path_delta_lambda_0.0005.png
+|   |           example_path_delta_lambda_0.002.png
+|   |           example_path_delta_lambda_0.01.png
+|   |           example_path_delta_lambda_0.png
+|   |           rmse_vs_frequency.png
+|   |           terminal_errors_lambda_0.0005.png
+|   |           terminal_errors_lambda_0.002.png
+|   |           terminal_errors_lambda_0.01.png
+|   |           terminal_errors_lambda_0.png
+|   |           transaction_cost_vs_frequency.png
+|   |           turnover_vs_lambda.png
+|   |           
+|   +---hjb_merton_1d
+|   |   |   config.json
+|   |   |   profile_gamma_1.5.csv
+|   |   |   profile_gamma_3.csv
+|   |   |   profile_gamma_5.csv
+|   |   |   profile_metrics.csv
+|   |   |   summary.json
+|   |   |   sweep_Nt.csv
+|   |   |   sweep_Nx.csv
+|   |   |   
+|   |   \---figures
+|   |           control_num_vs_exact_gamma_1.5.png
+|   |           control_num_vs_exact_gamma_3.png
+|   |           control_num_vs_exact_gamma_5.png
+|   |           error_control_vs_refinement.png
+|   |           error_value_vs_Nt.png
+|   |           error_value_vs_Nx.png
+|   |           value_num_vs_exact_gamma_1.5.png
+|   |           value_num_vs_exact_gamma_3.png
+|   |           value_num_vs_exact_gamma_5.png
+|   |           
+|   \---merton_aapl_empirical
+|       |   backtest_daily.csv
+|       |   config.json
+|       |   metrics.csv
+|       |   monthly_weights.csv
+|       |   rolling_estimates.csv
+|       |   summary.json
+|       |   turnover_monthly.csv
+|       |   
+|       +---data
+|       |   |   backtest_daily_data.csv
+|       |   |   risk_free_dgs3mo_daily.csv
+|       |   |   
+|       |   \---raw
+|       |           aapl_yahoo_chart_raw.json
+|       |           federal_reserve_h15_treasury_constant_maturities_raw.csv
+|       |           
+|       \---figures
+|               drawdowns.png
+|               merton_unconstrained_weights.png
+|               merton_weight_distribution.png
+|               return_volatility_scatter.png
+|               rolling_estimates_mu_sigma_r.png
+|               wealth_all_strategies.png
+|               
++---src
+|       hjb_fdm.py
+|       merton_closed_form.py
+|       
+\---tests
+        test_core.py
+        

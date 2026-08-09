@@ -1,0 +1,4 @@
+method,knockout_fraction
+naive_endpoint,0.173
+brownian_bridge,0.1855
+bridge_minus_naive,0.012500000000000011

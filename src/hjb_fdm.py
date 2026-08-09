@@ -32,6 +32,7 @@ def _empty_concavity_stats():
         "n_concavity_violations": 0,
         "n_near_zero_denom": 0,
         "n_denom_clipped": 0,
+        "n_denom_points": 0,
         "min_denom": np.inf,
         "max_denom": -np.inf,
         "has_nan": False,
@@ -50,11 +51,17 @@ def _update_concavity_stats(stats, denom, t, eps):
 
     n_viol = int(np.sum(denom >= 0.0))
     n_near = int(np.sum(np.abs(denom) < eps))
+    stats["n_denom_points"] += int(denom.size)
     stats["n_concavity_violations"] += n_viol
     stats["n_near_zero_denom"] += n_near
     stats["n_denom_clipped"] += int(np.sum(denom >= -eps))
     if n_viol and np.isnan(stats["first_violation_time"]):
         stats["first_violation_time"] = float(t)
+
+
+def terminal_condition(model: MertonModel, y):
+    """Condition terminale w(T,y) = U(exp(y))."""
+    return model.V(model.T, np.exp(y))
 
 
 def solve_hjb_fdm(model: MertonModel, Ny=200, Nt=400, y_min=-3.0, y_max=3.0,
@@ -67,7 +74,7 @@ def solve_hjb_fdm(model: MertonModel, Ny=200, Nt=400, y_min=-3.0, y_max=3.0,
     stats = _empty_concavity_stats()
 
     # condition terminale (tau=0  <=>  t=T)
-    w = model.V(T, np.exp(y))  # w(y, tau=0)
+    w = terminal_condition(model, y)  # w(y, tau=0)
 
     for n in range(Nt):
         tau = n * dtau
@@ -100,6 +107,14 @@ def solve_hjb_fdm(model: MertonModel, Ny=200, Nt=400, y_min=-3.0, y_max=3.0,
         stats["min_denom"] = np.nan
     if np.isinf(stats["max_denom"]):
         stats["max_denom"] = np.nan
+    if stats["n_denom_points"]:
+        stats["fraction_concavity_violations"] = (
+            stats["n_concavity_violations"] / stats["n_denom_points"]
+        )
+        stats["fraction_denom_clipped"] = stats["n_denom_clipped"] / stats["n_denom_points"]
+    else:
+        stats["fraction_concavity_violations"] = np.nan
+        stats["fraction_denom_clipped"] = np.nan
     stats["dt"] = float(dtau)
     stats["dy"] = float(dy)
     stats["lambda"] = float(dtau / dy ** 2)
@@ -109,16 +124,39 @@ def solve_hjb_fdm(model: MertonModel, Ny=200, Nt=400, y_min=-3.0, y_max=3.0,
     return y, w
 
 
-def pi_from_grid(model: MertonModel, y, w):
-    """pi*(0, x) = -(mu-r)/sigma^2 * V_x/V_xx, calcule par differences finies sur la grille finale."""
+def derivatives_from_log_grid(y, w):
+    """Calcule V_x, V_xx et le denominateur log w_yy - w_y sur la grille."""
     dy = y[1] - y[0]
     w_y = np.gradient(w, dy)
     w_yy = np.gradient(w_y, dy)
-    x = np.exp(y)
     Vx = w_y * np.exp(-y)
     Vxx = (w_yy - w_y) * np.exp(-2 * y)
-    pi_amount = -(model.mu - model.r) / model.sigma ** 2 * Vx / Vxx
-    return pi_amount
+    return Vx, Vxx, w_yy - w_y
+
+
+def pi_from_grid(model: MertonModel, y, w, eps=1e-10, return_diagnostics=False):
+    """Reconstruit pi*(0,x) avec un denominateur negatif regularise si necessaire."""
+    Vx, Vxx, _ = derivatives_from_log_grid(y, w)
+    denom_safe = np.where(Vxx < -eps, Vxx, -eps)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        pi_amount = -(model.mu - model.r) / model.sigma ** 2 * Vx / Vxx
+    pi_amount_safe = -(model.mu - model.r) / model.sigma ** 2 * Vx / denom_safe
+    if return_diagnostics:
+        stats = {
+            "n_final_grid_points": int(Vxx.size),
+            "n_final_concavity_violations": int(np.sum(Vxx >= 0.0)),
+            "fraction_final_concavity_violations": float(np.mean(Vxx >= 0.0)),
+            "n_final_denom_clipped": int(np.sum(Vxx >= -eps)),
+            "fraction_final_denom_clipped": float(np.mean(Vxx >= -eps)),
+            "min_final_Vxx": float(np.nanmin(Vxx)),
+            "max_final_Vxx": float(np.nanmax(Vxx)),
+            "has_nan_pi_raw": bool(np.isnan(pi_amount).any()),
+            "has_inf_pi_raw": bool(np.isinf(pi_amount).any()),
+            "has_nan_pi": bool(np.isnan(pi_amount_safe).any()),
+            "has_inf_pi": bool(np.isinf(pi_amount_safe).any()),
+        }
+        return pi_amount_safe, Vx, Vxx, stats
+    return pi_amount_safe
 
 
 def interpolate_at_y(y, values, y0):

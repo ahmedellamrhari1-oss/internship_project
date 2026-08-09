@@ -1,0 +1,114 @@
+{
+  "generated_at_utc": "2026-08-09T18:06:29.733314+00:00",
+  "runtime_seconds": 238.09731510002166,
+  "results_dir": "results\\barrier_hedging_bellman",
+  "initial_barrier_price_risk_neutral_numerical": 8.838907478970293,
+  "formulation": {
+    "state_lambda0": "(S,W,I), with exact quadratic reduction in W",
+    "state_costs": "(S,b,q,I), explicit grid",
+    "control": "new stock position a=q_prime",
+    "objective": "E[(W_T - (S_T-K)^+ I_T)^2]; costs are deducted from cash",
+    "barrier": "Brownian-bridge survival probability in Bellman and backtests",
+    "measure_note": "Bellman/backtests use real drift mu=0.08; price/delta benchmarks use risk-neutral drift r=0.02."
+  },
+  "lambda0_backtest": {
+    "bellman": {
+      "lambda": 0.0,
+      "frequency": 24,
+      "strategy": "bellman_lambda0",
+      "band": -1.0,
+      "rmse": 1.351963747746769,
+      "mae": 0.9828991161301072,
+      "bias": 0.023536193409566312,
+      "q01": -3.823104451089365,
+      "q05": -2.209662025055272,
+      "q50": 0.01323952207372514,
+      "q95": 2.22032596185442,
+      "q99": 3.325056611896752,
+      "mean_cost": 0.0,
+      "turnover": 2.0003008570839573,
+      "n_trades": 24.0,
+      "knockout_fraction": 0.1855,
+      "rmse_knockout": 1.144043834499152,
+      "rmse_survivor": 1.3949909700676915,
+      "rmse_near_barrier": 1.3905652936718216
+    },
+    "barrier_delta": {
+      "lambda": 0.0,
+      "frequency": 24,
+      "strategy": "barrier_delta",
+      "band": 0.0,
+      "rmse": 1.3952945399031818,
+      "mae": 1.0469828678771966,
+      "bias": -0.002311192725549333,
+      "q01": -3.808196356487627,
+      "q05": -2.222199998183097,
+      "q50": 0.008317055882720067,
+      "q95": 2.328839265220917,
+      "q99": 3.3665684640079516,
+      "mean_cost": 0.0,
+      "turnover": 2.008147065805663,
+      "n_trades": 22.1855,
+      "knockout_fraction": 0.1855,
+      "rmse_knockout": 0.968480104341794,
+      "rmse_survivor": 1.475337020486975,
+      "rmse_near_barrier": 1.3618274412885432
+    },
+    "european_delta": {
+      "lambda": 0.0,
+      "frequency": 24,
+      "strategy": "european_delta",
+      "band": 0.0,
+      "rmse": 1.3966551601747628,
+      "mae": 1.0440967273608248,
+      "bias": -0.03547766223933419,
+      "q01": -4.092291273343198,
+      "q05": -2.3608724050047485,
+      "q50": 0.039842499359075134,
+      "q95": 2.1787391393862334,
+      "q99": 3.2872034654457747,
+      "mean_cost": 0.0,
+      "turnover": 2.0277801174860124,
+      "n_trades": 22.2095,
+      "knockout_fraction": 0.1855,
+      "rmse_knockout": 0.9147279415426136,
+      "rmse_survivor": 1.4847010846178965,
+      "rmse_near_barrier": 1.3792662243646767
+    }
+  },
+  "crossing_diagnostics": [
+    {
+      "method": "naive_endpoint",
+      "knockout_fraction": 0.173
+    },
+    {
+      "method": "brownian_bridge",
+      "knockout_fraction": 0.1855
+    },
+    {
+      "method": "bridge_minus_naive",
+      "knockout_fraction": 0.012500000000000011
+    }
+  ],
+  "hold_summary_costs": [
+    {
+      "lambda": 0.0005,
+      "hold_fraction": 0.1568627450980392,
+      "near_barrier_hold": 0.2256535947712418,
+      "far_hold": 0.10232843137254903
+    },
+    {
+      "lambda": 0.002,
+      "hold_fraction": 0.15533769063180827,
+      "near_barrier_hold": 0.2264705882352941,
+      "far_hold": 0.10018382352941176
+    },
+    {
+      "lambda": 0.01,
+      "hold_fraction": 0.14379084967320263,
+      "near_barrier_hold": 0.2207516339869281,
+      "far_hold": 0.09262663398692811
+    }
+  ],
+  "n_figures": 16
+}
