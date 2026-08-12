@@ -240,6 +240,27 @@ def test_bellman_reproducible():
         np.testing.assert_allclose(v1, v2)
 
 
+def test_bellman_state_and_action_grids_are_independent():
+    grids = bellman.make_grids(n_s=7, n_b=9, n_q=5)
+    action_grid = np.linspace(0.0, 1.0, 13)
+    sol = bellman.solve_bellman(0.002, n_steps=2, grids=grids, n_quad=3, action_grid=action_grid)
+    np.testing.assert_allclose(sol["action_grid"], action_grid)
+    allowed = np.isin(np.concatenate([p.ravel() for p in sol["policies"]]), action_grid)
+    if not allowed.all():
+        raise AssertionError("A policy action did not belong to the independent action grid")
+    if len(sol["q_grid"]) == len(sol["action_grid"]):
+        raise AssertionError("The test did not actually separate state and action grids")
+
+
+def test_empirical_cash_grid_is_strict_and_has_safety_margin():
+    samples = np.r_[np.full(500, 8.0), np.linspace(-100.0, 5.0, 1000)]
+    grid = bellman.quantile_cash_grid(samples, n_b=31)
+    if not np.all(np.diff(grid) > 0.0):
+        raise AssertionError("Empirical cash grid is not strictly increasing")
+    if not (grid[0] < samples.min() and grid[-1] > samples.max()):
+        raise AssertionError("Empirical cash grid does not include a safety margin")
+
+
 def test_bellman_lambda_zero_policy_reasonably_close_to_delta_on_coarse_grid():
     grids = bellman.make_grids(n_s=9, n_b=11, n_q=11)
     sol = bellman.solve_bellman(0.0, n_steps=3, grids=grids)

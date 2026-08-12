@@ -1,0 +1,12 @@
+{
+  "seed": 12345,
+  "common_paths": true,
+  "sweep_base": {
+    "N": 8,
+    "Ns": 31,
+    "Nb": 31,
+    "Nq": 17,
+    "Na": 33,
+    "n_quad": 3
+  }
+}

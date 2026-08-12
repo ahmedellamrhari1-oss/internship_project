@@ -1,0 +1,9 @@
+{
+  "config_id": "time_cash_fine",
+  "n_steps": 16,
+  "n_s": 31,
+  "n_b": 61,
+  "n_q": 17,
+  "n_action": 33,
+  "n_quad": 7
+}

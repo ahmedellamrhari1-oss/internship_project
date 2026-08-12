@@ -1,0 +1,25 @@
+{
+  "seed": 12345,
+  "n_paths": 2000,
+  "boundary_centers": [
+    0.09375,
+    0.21875,
+    0.34375,
+    0.5,
+    0.65625,
+    0.78125,
+    0.90625
+  ],
+  "pilot_diagnostics": {
+    "fraction_s_near_boundary": 0.0,
+    "fraction_cash_near_boundary": 0.0,
+    "fraction_s_outside_grid": 0.0,
+    "fraction_cash_outside_grid": 0.0,
+    "fraction_near_boundaries": 0.0,
+    "fraction_transition_s_outside_grid": 0.0,
+    "fraction_transition_cash_outside_grid": 0.0,
+    "hold_fraction_realized": 0.20775,
+    "buy_fraction_realized": 0.4664375,
+    "sell_fraction_realized": 0.3258125
+  }
+}

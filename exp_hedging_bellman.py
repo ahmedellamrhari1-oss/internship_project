@@ -104,9 +104,67 @@ def make_grids(n_s=25, n_b=35, n_q=17):
     return s_grid, b_grid, q_grid
 
 
-def make_cost_grids(n_s=51, n_b=61, n_q=33, cash_mode="adaptive"):
-    s_grid = np.exp(np.linspace(np.log(35.0), np.log(260.0), n_s))
-    q_grid = np.linspace(0.0, 1.0, n_q)
+def make_local_s_grid(n_s, mode="strike_dense"):
+    """Stock grid with fixed tails and optional extra density near the strike."""
+    if mode == "log_uniform":
+        return np.exp(np.linspace(np.log(35.0), np.log(260.0), n_s))
+    if mode != "strike_dense":
+        raise ValueError(f"Unknown S grid mode: {mode}")
+    fine = np.exp(np.linspace(np.log(35.0), np.log(260.0), 20001))
+    log_distance = (np.log(fine / K) / 0.24) ** 2
+    density = 1.0 + 4.0 * np.exp(-0.5 * log_distance)
+    cdf = np.concatenate(([0.0], np.cumsum(0.5 * (density[1:] + density[:-1]) * np.diff(fine))))
+    grid = np.interp(np.linspace(0.0, cdf[-1], n_s), cdf, fine)
+    grid[np.argmin(np.abs(grid - K))] = K
+    return np.sort(grid)
+
+
+def make_refined_unit_grid(n, centers=None):
+    """Grid on [0,1], densified around empirical policy switching locations."""
+    if not centers:
+        return np.linspace(0.0, 1.0, n)
+    fine = np.linspace(0.0, 1.0, 20001)
+    density = np.ones_like(fine)
+    for center in np.asarray(centers, dtype=float):
+        density += 2.5 * np.exp(-0.5 * ((fine - center) / 0.035) ** 2)
+    cdf = np.concatenate(([0.0], np.cumsum(0.5 * (density[1:] + density[:-1]) * np.diff(fine))))
+    grid = np.interp(np.linspace(0.0, cdf[-1], n), cdf, fine)
+    return np.unique(np.r_[0.0, grid[1:-1], 1.0])
+
+
+def quantile_cash_grid(cash_samples, n_b, safety_fraction=0.15):
+    """Empirical cash grid: quantile-spaced interior plus a tail safety margin."""
+    samples = np.asarray(cash_samples, dtype=float)
+    samples = samples[np.isfinite(samples)]
+    # A common initial endowment creates a large atom. It needs one grid node,
+    # not many near-duplicates that waste upper-tail resolution.
+    samples = np.unique(samples)
+    if samples.size < 20:
+        raise ValueError("At least 20 finite cash states are required")
+    probs = np.linspace(0.001, 0.999, n_b)
+    grid = np.quantile(samples, probs)
+    span = max(float(grid[-1] - grid[0]), 1.0)
+    margin = safety_fraction * span
+    grid[0] = min(grid[0] - margin, float(samples.min()) - margin)
+    grid[-1] = max(grid[-1] + margin, float(samples.max()) + margin)
+    # Strict monotonicity is required by interpolation.
+    eps = max(1e-8, span * 1e-10)
+    for j in range(1, len(grid)):
+        grid[j] = max(grid[j], grid[j - 1] + eps)
+    return grid
+
+
+def make_cost_grids(
+    n_s=51,
+    n_b=61,
+    n_q=33,
+    cash_mode="adaptive",
+    cash_samples=None,
+    s_mode="strike_dense",
+    q_centers=None,
+):
+    s_grid = make_local_s_grid(n_s, mode=s_mode)
+    q_grid = make_refined_unit_grid(n_q, centers=q_centers)
     if cash_mode == "uniform":
         b_grid = np.linspace(-280.0, 160.0, n_b)
     elif cash_mode == "adaptive":
@@ -119,6 +177,10 @@ def make_cost_grids(n_s=51, n_b=61, n_q=33, cash_mode="adaptive"):
         b_grid = center + half_width * np.sinh(1.8 * u) / np.sinh(1.8)
         b_grid[0], b_grid[-1] = -280.0, 160.0
         b_grid = np.unique(np.sort(b_grid))
+    elif cash_mode == "empirical_quantile":
+        if cash_samples is None:
+            raise ValueError("cash_samples are required for empirical_quantile")
+        b_grid = quantile_cash_grid(cash_samples, n_b)
     else:
         raise ValueError(f"Unknown cash_mode: {cash_mode}")
     return s_grid, b_grid, q_grid
@@ -320,15 +382,29 @@ def interp2_on_grid(values, s_grid, b_grid, s_query, b_query, method="linear"):
     v01 = values[i, j + 1]
     v11 = values[i + 1, j + 1]
     if method == "quadratic_cash":
-        flat_i = np.ravel(i)
-        flat_b = np.ravel(b_clamped)
-        shape = np.shape(b_clamped)
-        row0 = np.array([interp1_quadratic(b_grid, values[ii], bb) for ii, bb in zip(flat_i, flat_b)]).reshape(shape)
-        row1 = np.array([interp1_quadratic(b_grid, values[ii + 1], bb) for ii, bb in zip(flat_i, flat_b)]).reshape(shape)
+        j_mid = np.searchsorted(b_grid, b_clamped, side="left")
+        j0 = np.clip(j_mid - 1, 0, len(b_grid) - 3)
+        j1 = j0 + 1
+        j2 = j0 + 2
+        x0, x1, x2 = b_grid[j0], b_grid[j1], b_grid[j2]
+        l0 = (b_clamped - x1) * (b_clamped - x2) / ((x0 - x1) * (x0 - x2))
+        l1 = (b_clamped - x0) * (b_clamped - x2) / ((x1 - x0) * (x1 - x2))
+        l2 = (b_clamped - x0) * (b_clamped - x1) / ((x2 - x0) * (x2 - x1))
+        row0 = l0 * values[i, j0] + l1 * values[i, j1] + l2 * values[i, j2]
+        row1 = l0 * values[i + 1, j0] + l1 * values[i + 1, j1] + l2 * values[i + 1, j2]
         return (1 - ws) * row0 + ws * row1
     if method != "linear":
         raise ValueError(f"Unknown interpolation method: {method}")
     return (1 - ws) * (1 - wb) * v00 + ws * (1 - wb) * v10 + (1 - ws) * wb * v01 + ws * wb * v11
+
+
+def value_surface_at_q(values, q_grid, q_query):
+    """Linear interpolation of V(S,b,q) in the state-q dimension."""
+    q_clamped = float(np.clip(q_query, q_grid[0], q_grid[-1]))
+    hi = int(np.clip(np.searchsorted(q_grid, q_clamped, side="right"), 1, len(q_grid) - 1))
+    lo = hi - 1
+    weight = (q_clamped - q_grid[lo]) / (q_grid[hi] - q_grid[lo])
+    return (1.0 - weight) * values[lo] + weight * values[hi]
 
 
 def bellman_backup_state(s, b, q, action, lam, next_values_for_action, s_grid, b_grid, dt, interp_method="linear", n_quad=5):
@@ -342,11 +418,21 @@ def bellman_backup_state(s, b, q, action, lam, next_values_for_action, s_grid, b
     return expected
 
 
-def solve_bellman(lam, n_steps=N_DP, grids=None, interp_method="linear", n_quad=5):
+def solve_bellman(lam, n_steps=N_DP, grids=None, interp_method="linear", n_quad=5, action_grid=None):
     if grids is None:
         grids = make_grids()
     s_grid, b_grid, q_grid = grids
+    if action_grid is None:
+        action_grid = q_grid.copy()
+    action_grid = np.asarray(action_grid, dtype=float)
+    if np.any(np.diff(action_grid) <= 0.0) or action_grid[0] < q_grid[0] or action_grid[-1] > q_grid[-1]:
+        raise ValueError("action_grid must be strictly increasing and lie inside q_grid bounds")
     dt = T / n_steps
+    rf = math.exp(R * dt)
+    z_nodes, z_weights = gauss_hermite_normal(n_quad)
+    s_next_by_z = s_grid[:, None] * np.exp(
+        (MU - 0.5 * SIGMA ** 2) * dt + SIGMA * math.sqrt(dt) * z_nodes[None, :]
+    )
 
     s_mesh = s_grid[:, None]
     b_mesh = b_grid[None, :]
@@ -361,25 +447,33 @@ def solve_bellman(lam, n_steps=N_DP, grids=None, interp_method="linear", n_quad=
     for n in range(n_steps - 1, -1, -1):
         value_now = np.empty_like(value_next)
         policy_now = np.empty_like(value_next)
-        for iq, q in enumerate(q_grid):
-            best = np.full((len(s_grid), len(b_grid)), np.inf)
-            best_action = np.full((len(s_grid), len(b_grid)), q_grid[0])
-            for ia, action in enumerate(q_grid):
-                candidate = np.zeros((len(s_grid), len(b_grid)), dtype=float)
-                for is_, s in enumerate(s_grid):
-                    b_after = b_grid - (action - q) * s - transaction_cost(lam, s, action, q)
-                    b_next = b_after * math.exp(R * dt)
-                    expected_row = np.zeros(len(b_grid), dtype=float)
-                    z_nodes, z_weights = gauss_hermite_normal(n_quad)
-                    for z, weight in zip(z_nodes, z_weights):
-                        s_next = s * math.exp((MU - 0.5 * SIGMA ** 2) * dt + SIGMA * math.sqrt(dt) * z)
-                        expected_row += weight * interp2_on_grid(values[n + 1][ia], s_grid, b_grid, s_next, b_next, method=interp_method)
-                    candidate[is_] = expected_row
-                improve = candidate < best
-                best[improve] = candidate[improve]
-                best_action[improve] = action
-            value_now[iq] = best
-            policy_now[iq] = best_action
+        best = np.full_like(value_next, np.inf)
+        best_action = np.full_like(value_next, action_grid[0])
+        q_mesh = q_grid[:, None, None]
+        s_state = s_grid[None, :, None]
+        b_state = b_grid[None, None, :]
+        for action in action_grid:
+            next_surface = value_surface_at_q(values[n + 1], q_grid, action)
+            b_next = (
+                b_state
+                - (action - q_mesh) * s_state
+                - lam * s_state * np.abs(action - q_mesh)
+            ) * rf
+            candidate = np.zeros_like(best)
+            for iz, weight in enumerate(z_weights):
+                candidate += weight * interp2_on_grid(
+                    next_surface,
+                    s_grid,
+                    b_grid,
+                    s_next_by_z[:, iz][None, :, None],
+                    b_next,
+                    method=interp_method,
+                )
+            improve = candidate < best
+            best[improve] = candidate[improve]
+            best_action[improve] = action
+        value_now[:] = best
+        policy_now[:] = best_action
         values[n] = value_now
         policies[n] = policy_now
         value_next = value_now
@@ -390,6 +484,7 @@ def solve_bellman(lam, n_steps=N_DP, grids=None, interp_method="linear", n_quad=
         "s_grid": s_grid,
         "b_grid": b_grid,
         "q_grid": q_grid,
+        "action_grid": action_grid,
         "values": values,
         "policies": policies,
         "interp_method": interp_method,
@@ -409,22 +504,23 @@ def policy_action(solution, n, s, b, q):
     return float(solution["policies"][min(n, solution["n_steps"] - 1)][iq, is_, ib])
 
 
-def bellman_actions_continuous(solution, n, s_values, b_values, q_values, lam):
+def bellman_action_objectives(solution, n, s_values, b_values, q_values, lam, actions=None):
     s_values = np.asarray(s_values)
     b_values = np.asarray(b_values)
     q_values = np.asarray(q_values)
     dt = solution["dt"]
     z_nodes, z_weights = gauss_hermite_normal(solution.get("n_quad", 5))
     interp_method = solution.get("interp_method", "linear")
+    actions = solution.get("action_grid", solution["q_grid"]) if actions is None else np.asarray(actions)
     costs_by_action = []
-    for ia, action in enumerate(solution["q_grid"]):
+    for action in actions:
         b_after = b_values - (action - q_values) * s_values - transaction_cost(lam, s_values, action, q_values)
         b_next = b_after * math.exp(R * dt)
         expected = np.zeros_like(s_values, dtype=float)
         for z, weight in zip(z_nodes, z_weights):
             s_next = s_values * np.exp((MU - 0.5 * SIGMA ** 2) * dt + SIGMA * math.sqrt(dt) * z)
             expected += weight * interp2_on_grid(
-                solution["values"][n + 1][ia],
+                value_surface_at_q(solution["values"][n + 1], solution["q_grid"], action),
                 solution["s_grid"],
                 solution["b_grid"],
                 s_next,
@@ -432,11 +528,49 @@ def bellman_actions_continuous(solution, n, s_values, b_values, q_values, lam):
                 method=interp_method,
             )
         costs_by_action.append(expected)
-    stacked = np.vstack(costs_by_action)
-    return solution["q_grid"][np.argmin(stacked, axis=0)]
+    return np.vstack(costs_by_action)
 
 
-def simulate_bellman_policy(solution, paths, times, lam):
+def bellman_actions_continuous(solution, n, s_values, b_values, q_values, lam, control_mode="discrete"):
+    actions = solution.get("action_grid", solution["q_grid"])
+    stacked = bellman_action_objectives(solution, n, s_values, b_values, q_values, lam, actions=actions)
+    best_idx = np.argmin(stacked, axis=0)
+    selected = actions[best_idx].astype(float, copy=True)
+    if control_mode == "discrete":
+        return selected
+    if control_mode != "local_quadratic":
+        raise ValueError(f"Unknown control mode: {control_mode}")
+
+    # A safeguarded parabolic vertex is used only at a strict, locally convex
+    # interior minimum. Otherwise the discrete minimizer is retained. This is
+    # an interpolation of the Bellman objective, not a BS-guided control.
+    cols = np.arange(selected.size)
+    flat_idx = best_idx.ravel()
+    flat_cost = stacked.reshape(len(actions), -1)
+    eligible = (flat_idx > 0) & (flat_idx < len(actions) - 1)
+    use_cols = cols[eligible]
+    ii = flat_idx[eligible]
+    if use_cols.size:
+        x0, x1, x2 = actions[ii - 1], actions[ii], actions[ii + 1]
+        y0 = flat_cost[ii - 1, use_cols]
+        y1 = flat_cost[ii, use_cols]
+        y2 = flat_cost[ii + 1, use_cols]
+        # Unequal-grid quadratic vertex from local divided differences.
+        d01 = (y1 - y0) / (x1 - x0)
+        d12 = (y2 - y1) / (x2 - x1)
+        curvature = (d12 - d01) / (x2 - x0)
+        vertex = 0.5 * (x0 + x1 - d01 / np.where(curvature > 0.0, curvature, 1.0))
+        stable = (curvature > 1e-10) & (vertex >= x0) & (vertex <= x2)
+        # Do not smooth across the transaction-cost kink a=q.
+        q_flat = np.asarray(q_values).ravel()[eligible]
+        stable &= ~((x0 < q_flat) & (q_flat < x2))
+        out = selected.ravel()
+        out[use_cols[stable]] = vertex[stable]
+        selected = out.reshape(selected.shape)
+    return selected
+
+
+def simulate_bellman_policy(solution, paths, times, lam, control_mode="discrete", record_states=False):
     idx = rebalance_indices(solution["n_steps"], n_steps=paths.shape[1] - 1)
     n_paths = paths.shape[0]
     cash = np.full(n_paths, float(bs_call_price(S0, T)))
@@ -452,6 +586,14 @@ def simulate_bellman_policy(solution, paths, times, lam):
     s_outside = 0
     b_outside = 0
     n_state_checks = 0
+    transition_s_outside = 0
+    transition_b_outside = 0
+    transition_checks_s = 0
+    transition_checks_b = 0
+    state_frames = []
+    hold_count = 0
+    buy_count = 0
+    sell_count = 0
 
     for n, i in enumerate(idx[:-1]):
         if i > last_i:
@@ -464,7 +606,22 @@ def simulate_bellman_policy(solution, paths, times, lam):
         s_outside += int(np.sum((s_i < solution["s_grid"][0]) | (s_i > solution["s_grid"][-1])))
         b_outside += int(np.sum((cash < solution["b_grid"][0]) | (cash > solution["b_grid"][-1])))
         n_state_checks += int(s_i.size)
-        actions = bellman_actions_continuous(solution, n, s_i, cash, q, lam)
+        if record_states:
+            state_frames.append(pd.DataFrame({"time_index": n, "S": s_i, "cash": cash, "q": q}))
+        actions = bellman_actions_continuous(solution, n, s_i, cash, q, lam, control_mode=control_mode)
+        hold_count += int(np.sum(np.abs(actions - q) <= 1e-12))
+        buy_count += int(np.sum(actions - q > 1e-12))
+        sell_count += int(np.sum(actions - q < -1e-12))
+        b_transition = (cash - (actions - q) * s_i - transaction_cost(lam, s_i, actions, q)) * math.exp(R * solution["dt"])
+        transition_b_outside += int(np.sum((b_transition < solution["b_grid"][0]) | (b_transition > solution["b_grid"][-1])))
+        transition_checks_b += n_paths
+        z_nodes, _ = gauss_hermite_normal(solution.get("n_quad", 5))
+        s_transition = s_i[:, None] * np.exp(
+            (MU - 0.5 * SIGMA ** 2) * solution["dt"]
+            + SIGMA * math.sqrt(solution["dt"]) * z_nodes[None, :]
+        )
+        transition_s_outside += int(np.sum((s_transition < solution["s_grid"][0]) | (s_transition > solution["s_grid"][-1])))
+        transition_checks_s += s_transition.size
         costs = transaction_cost(lam, s_i, actions, q)
         cash -= (actions - q) * s_i + costs
         cumulative_cost += costs
@@ -496,7 +653,14 @@ def simulate_bellman_policy(solution, paths, times, lam):
             "fraction_cash_near_boundary": b_near_boundary / n_state_checks,
             "fraction_s_outside_grid": s_outside / n_state_checks,
             "fraction_cash_outside_grid": b_outside / n_state_checks,
+            "fraction_near_boundaries": (s_near_boundary + b_near_boundary) / (2 * n_state_checks),
+            "fraction_transition_s_outside_grid": transition_s_outside / transition_checks_s,
+            "fraction_transition_cash_outside_grid": transition_b_outside / transition_checks_b,
+            "hold_fraction_realized": hold_count / n_state_checks,
+            "buy_fraction_realized": buy_count / n_state_checks,
+            "sell_fraction_realized": sell_count / n_state_checks,
         },
+        "state_samples": pd.concat(state_frames, ignore_index=True) if state_frames else None,
     }
 
 
@@ -530,12 +694,16 @@ def classify_policy(solution):
     rows = []
     for n, policy in enumerate(solution["policies"]):
         diff = policy - solution["q_grid"][:, None, None]
-        hold = np.isclose(diff, 0.0, atol=0.5 * (solution["q_grid"][1] - solution["q_grid"][0]) + 1e-12)
+        action_grid = solution.get("action_grid", solution["q_grid"])
+        action_tol = 0.5 * float(np.min(np.diff(action_grid))) + 1e-12
+        hold = np.isclose(diff, 0.0, atol=action_tol)
         buy = diff > 0
         sell = diff < 0
         for is_, s in enumerate(solution["s_grid"]):
-            hold_by_q = hold[:, is_, :].mean(axis=1)
-            hold_q = solution["q_grid"][hold_by_q > 0.5]
+            widths = []
+            for ib in range(len(solution["b_grid"])):
+                hold_q = solution["q_grid"][hold[:, is_, ib]]
+                widths.append(float(hold_q.max() - hold_q.min()) if hold_q.size else 0.0)
             rows.append(
                 {
                     "lambda": solution["lambda"],
@@ -545,7 +713,7 @@ def classify_policy(solution):
                     "hold_fraction": float(np.mean(hold[:, is_, :])),
                     "buy_fraction": float(np.mean(buy[:, is_, :])),
                     "sell_fraction": float(np.mean(sell[:, is_, :])),
-                    "hold_width_q": float(hold_q.max() - hold_q.min()) if hold_q.size else 0.0,
+                    "hold_width_q": float(np.mean(widths)),
                 }
             )
     return pd.DataFrame(rows)
@@ -823,7 +991,7 @@ def plot_cost_convergence(cost_q, cost_s, cost_cash, cost_time, cost_interp, hol
     plt.close()
 
 
-def run_experiment():
+def run_legacy_experiment():
     ensure_dirs()
     started = time.perf_counter()
     for path in FIG_DIR.glob("*.png"):
@@ -1019,28 +1187,111 @@ def buy_hold_sell_from_result(result):
     }
 
 
-def cost_solution_metrics(lam=0.002, n_steps=12, n_s=51, n_b=61, n_q=33, cash_mode="adaptive", interp_method="linear", n_quad=3, n_paths=3000):
-    grids = make_cost_grids(n_s=n_s, n_b=n_b, n_q=n_q, cash_mode=cash_mode)
+def policy_boundary_centers(solution):
+    """Empirical q locations at which the grid policy changes BUY/HOLD/SELL regime."""
+    centers = []
+    q_grid = solution["q_grid"]
+    for policy in solution["policies"]:
+        sign = np.sign(policy - q_grid[:, None, None])
+        changes = sign[1:] != sign[:-1]
+        counts = changes.sum(axis=(1, 2))
+        centers.extend((0.5 * (q_grid[:-1] + q_grid[1:]))[counts > 0].tolist())
+    if not centers:
+        return []
+    return np.quantile(np.asarray(centers), np.linspace(0.1, 0.9, 7)).tolist()
+
+
+def pilot_state_audit(paths, times, lam=0.002):
+    """Coarse policy used only to locate occupied state regions, never to use BS controls."""
+    grids = make_cost_grids(n_s=31, n_b=41, n_q=17, cash_mode="adaptive", s_mode="strike_dense")
+    solution = solve_bellman(lam, n_steps=8, grids=grids, interp_method="quadratic_cash", n_quad=3)
+    result = simulate_bellman_policy(solution, paths, times, lam, record_states=True)
+    states = result["state_samples"]
+    rows = []
+    for name in ["S", "cash", "q"]:
+        values = states[name].to_numpy()
+        for probability in [0.0, 0.001, 0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99, 0.999, 1.0]:
+            rows.append({"state": name, "probability": probability, "quantile": float(np.quantile(values, probability))})
+    return solution, result, states, pd.DataFrame(rows), policy_boundary_centers(solution)
+
+
+def cost_solution_metrics(
+    lam=0.002,
+    n_steps=8,
+    n_s=31,
+    n_b=31,
+    n_q=17,
+    n_action=33,
+    cash_mode="empirical_quantile",
+    cash_samples=None,
+    s_mode="strike_dense",
+    q_mode="uniform",
+    q_centers=None,
+    action_mode="uniform",
+    interp_method="linear",
+    control_mode="discrete",
+    n_quad=3,
+    n_paths=2000,
+    times=None,
+    paths=None,
+    config_id="",
+):
+    if cash_mode == "empirical_quantile" and cash_samples is None:
+        # Backward-compatible diagnostic default; production sweeps always pass
+        # pilot samples explicitly.
+        cash_mode = "adaptive"
+    centers = q_centers if q_mode == "boundary_refined" else None
+    grids = make_cost_grids(
+        n_s=n_s,
+        n_b=n_b,
+        n_q=n_q,
+        cash_mode=cash_mode,
+        cash_samples=cash_samples,
+        s_mode=s_mode,
+        q_centers=centers,
+    )
+    action_centers = q_centers if action_mode == "boundary_refined" else None
+    action_grid = make_refined_unit_grid(n_action, centers=action_centers)
     started = time.perf_counter()
-    sol = solve_bellman(lam, n_steps=n_steps, grids=grids, interp_method=interp_method, n_quad=n_quad)
+    sol = solve_bellman(
+        lam,
+        n_steps=n_steps,
+        grids=grids,
+        interp_method=interp_method,
+        n_quad=n_quad,
+        action_grid=action_grid,
+    )
     solve_time = time.perf_counter() - started
     hold = classify_policy(sol)
-    times, paths = simulate_gbm_paths(n_paths=n_paths, n_steps=252, seed=SEED, mu=MU)
-    bell = simulate_bellman_policy(sol, paths, times, lam)
+    if paths is None or times is None:
+        times, paths = simulate_gbm_paths(n_paths=n_paths, n_steps=252, seed=SEED, mu=MU)
+    else:
+        paths = paths[:n_paths]
+    bell = simulate_bellman_policy(sol, paths, times, lam, control_mode=control_mode)
     delta = simulate_hedge(paths, times, lam=lam, frequency=n_steps, strategy="delta_bs")
     bell_m = metrics_from_result(bell, lam, n_steps, "bellman_dp_costs", -1.0)
     delta_m = metrics_from_result(delta, lam, n_steps, "delta_bs_same_frequency", 0.0)
     diag = bell.get("diagnostics", {})
-    bhs = buy_hold_sell_from_result(bell)
+    bhs = {
+        "buy_frequency": diag.get("buy_fraction_realized", np.nan),
+        "hold_frequency": diag.get("hold_fraction_realized", np.nan),
+        "sell_frequency": diag.get("sell_fraction_realized", np.nan),
+    }
     return {
         "lambda": lam,
         "n_steps": n_steps,
         "Ns": n_s,
         "Nb": len(grids[1]),
         "Nq": n_q,
+        "Na": len(action_grid),
         "cash_mode": cash_mode,
+        "s_mode": s_mode,
+        "q_mode": q_mode,
+        "action_mode": action_mode,
         "interp_method": interp_method,
+        "control_mode": control_mode,
         "n_quad": n_quad,
+        "config_id": config_id,
         "solve_seconds": solve_time,
         "rmse_bellman": bell_m["rmse"],
         "rmse_delta_same_frequency": delta_m["rmse"],
@@ -1052,39 +1303,159 @@ def cost_solution_metrics(lam=0.002, n_steps=12, n_s=51, n_b=61, n_q=33, cash_mo
         "mean_trades_bellman": bell_m["mean_n_rebalances"],
         "hold_width_mean": float(hold["hold_width_q"].mean()),
         "hold_fraction_grid": float(hold["hold_fraction"].mean()),
+        "HOLD_width": float(hold["hold_width_q"].mean()),
+        "HOLD_fraction": float(bell["diagnostics"]["hold_fraction_realized"]),
+        "s_grid_min": float(grids[0][0]),
+        "s_grid_max": float(grids[0][-1]),
+        "cash_grid_min": float(grids[1][0]),
+        "cash_grid_max": float(grids[1][-1]),
+        "q_grid_min": float(grids[2][0]),
+        "q_grid_max": float(grids[2][-1]),
         **bhs,
         **diag,
     }, sol, bell
 
 
-def run_cost_convergence_sweeps():
-    base = {"lam": 0.002, "n_steps": 4, "n_s": 21, "n_b": 21, "n_q": 13, "cash_mode": "adaptive", "interp_method": "linear", "n_quad": 3}
-    q_rows = []
-    for n_q, n_s, n_b, n_steps in [(17, 21, 21, 4), (33, 17, 17, 3), (65, 13, 13, 2)]:
-        row, _, _ = cost_solution_metrics(**{**base, "n_q": n_q, "n_s": n_s, "n_b": n_b, "n_steps": n_steps}, n_paths=500)
-        q_rows.append(row)
+def run_cost_convergence_sweeps(times=None, paths=None, cash_samples=None, q_centers=None, n_paths=2000):
+    """True one-factor-at-a-time sweeps on common Monte Carlo paths."""
+    if paths is None or times is None:
+        times, paths = simulate_gbm_paths(n_paths=n_paths, n_steps=252, seed=SEED, mu=MU)
+    base = {
+        "lam": 0.002,
+        "n_steps": 8,
+        "n_s": 31,
+        "n_b": 31,
+        "n_q": 17,
+        "n_action": 33,
+        "cash_mode": "empirical_quantile" if cash_samples is not None else "adaptive",
+        "cash_samples": cash_samples,
+        "s_mode": "strike_dense",
+        "q_mode": "uniform",
+        "q_centers": q_centers,
+        "action_mode": "uniform",
+        "interp_method": "linear",
+        "control_mode": "discrete",
+        "n_quad": 3,
+        "n_paths": n_paths,
+        "times": times,
+        "paths": paths,
+    }
 
-    s_rows = []
-    for n_s, n_q, n_b, n_steps in [(51, 13, 21, 4), (101, 9, 17, 3), (201, 7, 13, 2)]:
-        row, _, _ = cost_solution_metrics(**{**base, "n_s": n_s, "n_q": n_q, "n_b": n_b, "n_steps": n_steps}, n_paths=500)
-        s_rows.append(row)
+    def sweep(parameter, values):
+        rows = []
+        for value in values:
+            row, _, _ = cost_solution_metrics(
+                **{**base, parameter: value, "config_id": f"OFAT_{parameter}_{value}"}
+            )
+            row["sweep_parameter"] = parameter
+            row["sweep_value"] = str(value)
+            rows.append(row)
+        return pd.DataFrame(rows)
 
-    cash_rows = []
-    for n_b, cash_mode in [(13, "uniform"), (13, "adaptive"), (21, "adaptive"), (31, "adaptive")]:
-        row, _, _ = cost_solution_metrics(**{**base, "n_b": n_b, "cash_mode": cash_mode}, n_paths=500)
-        cash_rows.append(row)
+    results = {
+        "q": sweep("n_q", [9, 17, 25]),
+        "S": sweep("n_s", [21, 31, 45]),
+        "cash": sweep("n_b", [21, 31, 45]),
+        "time": sweep("n_steps", [4, 8, 12]),
+        "quadrature": sweep("n_quad", [3, 5, 7]),
+        "interpolation": sweep("interp_method", ["linear", "quadratic_cash"]),
+        "action": sweep("n_action", [17, 33, 65]),
+        "S_mode": sweep("s_mode", ["log_uniform", "strike_dense"]),
+        "q_mode": sweep("q_mode", ["uniform", "boundary_refined"]),
+        "action_mode": sweep("action_mode", ["uniform", "boundary_refined"]),
+        "control_eval": sweep("control_mode", ["discrete", "local_quadratic"]),
+    }
+    return results
 
-    time_rows = []
-    for n_steps, n_q, n_s, n_b in [(12, 9, 17, 17), (24, 7, 13, 13), (48, 5, 11, 11)]:
-        row, _, _ = cost_solution_metrics(**{**base, "n_steps": n_steps, "n_q": n_q, "n_s": n_s, "n_b": n_b}, n_paths=500)
-        time_rows.append(row)
 
-    interp_rows = []
-    for interp_method in ["linear", "quadratic_cash"]:
-        row, _, _ = cost_solution_metrics(**{**base, "interp_method": interp_method, "n_q": 9, "n_b": 17}, n_paths=500)
-        interp_rows.append(row)
+def combined_cost_configurations():
+    """Configurations chosen after the OFAT study identified time and cash resolution."""
+    return [
+        {"config_id": "reference_OFAT", "n_steps": 8, "n_s": 31, "n_b": 31, "n_q": 17, "n_action": 33, "n_quad": 3},
+        {"config_id": "combined_mid", "n_steps": 12, "n_s": 31, "n_b": 45, "n_q": 17, "n_action": 33, "n_quad": 5},
+        {"config_id": "time_cash_fine", "n_steps": 16, "n_s": 31, "n_b": 61, "n_q": 17, "n_action": 33, "n_quad": 7},
+        {"config_id": "all_dimensions_fine", "n_steps": 16, "n_s": 45, "n_b": 61, "n_q": 25, "n_action": 65, "n_quad": 7},
+    ]
 
-    return pd.DataFrame(q_rows), pd.DataFrame(s_rows), pd.DataFrame(cash_rows), pd.DataFrame(time_rows), pd.DataFrame(interp_rows)
+
+def evaluate_combined_configurations(times, paths, cash_samples, q_centers, n_paths=3000):
+    rows = []
+    for config in combined_cost_configurations():
+        row, _, _ = cost_solution_metrics(
+            lam=0.002,
+            cash_mode="empirical_quantile",
+            cash_samples=cash_samples,
+            s_mode="strike_dense",
+            q_mode="uniform",
+            q_centers=q_centers,
+            action_mode="uniform",
+            interp_method="linear",
+            control_mode="discrete",
+            times=times,
+            paths=paths,
+            n_paths=n_paths,
+            **config,
+        )
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def run_final_cost_validation(best_config, cash_samples, q_centers, n_paths=10000):
+    """Common-path comparison required for the selected lambda=0.002 policy."""
+    times, paths = simulate_gbm_paths(n_paths=n_paths, n_steps=252, seed=SEED, mu=MU)
+    row, solution, bell = cost_solution_metrics(
+        lam=0.002,
+        cash_mode="empirical_quantile",
+        cash_samples=cash_samples,
+        s_mode="strike_dense",
+        q_mode="uniform",
+        q_centers=q_centers,
+        action_mode="uniform",
+        interp_method="linear",
+        control_mode="discrete",
+        times=times,
+        paths=paths,
+        n_paths=n_paths,
+        **best_config,
+    )
+    frequency = int(best_config["n_steps"])
+    delta = simulate_hedge(paths, times, lam=0.002, frequency=frequency, strategy="delta_bs")
+    aggregate = pd.read_csv(Path("results") / "hedging_transaction_costs" / "aggregate_comparisons.csv")
+    previous = aggregate[aggregate["lambda"].eq(0.002)].iloc[0]
+    heuristic = simulate_hedge(
+        paths,
+        times,
+        lam=0.002,
+        frequency=int(previous["best_optimized_frequency"]),
+        strategy="no_trade_band",
+        band=float(previous["best_optimized_band"]),
+    )
+
+    bell_metrics = metrics_from_result(bell, 0.002, frequency, "bellman_costs_selected", -1.0)
+    bell_metrics.update(bell["diagnostics"])
+    bell_metrics.update({"solve_seconds": row["solve_seconds"], "HOLD_fraction": row["HOLD_fraction"], "HOLD_width": row["HOLD_width"]})
+    delta_metrics = metrics_from_result(delta, 0.002, frequency, "delta_bs_same_frequency", 0.0)
+    heuristic_metrics = metrics_from_result(
+        heuristic,
+        0.002,
+        int(previous["best_optimized_frequency"]),
+        "best_no_trade_exp3A",
+        float(previous["best_optimized_band"]),
+    )
+    metrics = pd.DataFrame([bell_metrics, delta_metrics, heuristic_metrics])
+    metrics["bias"] = metrics["pnl_mean"]
+    metrics["mean_transaction_cost"] = metrics["mean_total_cost"]
+    metrics["turnover"] = metrics["mean_turnover"]
+    metrics["number_of_trades"] = metrics["mean_n_rebalances"]
+    errors = pd.concat(
+        [
+            sample_errors(bell, 0.002, "bellman_costs_selected", n=n_paths),
+            sample_errors(delta, 0.002, "delta_bs_same_frequency", n=n_paths),
+            sample_errors(heuristic, 0.002, "best_no_trade_exp3A", n=n_paths),
+        ],
+        ignore_index=True,
+    )
+    return metrics, errors, solution, bell, row
 
 
 def make_policy_stability(cost_q, cost_s, cost_cash, cost_time, cost_interp):
@@ -1202,6 +1573,155 @@ def lambda_positive_backtests(best_n_steps):
         idx = bell["rebalance_indices"][:-1]
         trajectories.append(pd.DataFrame({"lambda": lam, "path": 0, "t": times[idx], "S": paths[0, idx], "delta_bs": bell["bs_delta_path"][0], "q_bellman": bell["held_delta_path"][0]}))
     return pd.DataFrame(rows), pd.concat(samples, ignore_index=True), pd.concat(hold_frames, ignore_index=True), pd.concat(slices, ignore_index=True), pd.concat(trajectories, ignore_index=True)
+
+
+def plot_cost_refinement_results(sweeps, combined, final_metrics, cash_samples, selected_solution):
+    for name, df in sweeps.items():
+        x = np.arange(len(df))
+        labels = df["sweep_value"].astype(str).tolist()
+        fig, ax = plt.subplots(figsize=(7.5, 4.8))
+        ax.plot(x, df["rmse_bellman"], marker="o", label="Bellman RMSE")
+        ax.set_xticks(x, labels)
+        ax.set_xlabel(df["sweep_parameter"].iloc[0])
+        ax.set_ylabel("terminal hedging RMSE")
+        ax.grid(True, alpha=0.3)
+        ax2 = ax.twinx()
+        ax2.plot(x, df["solve_seconds"], marker="s", color="tab:orange", label="solve time")
+        ax2.set_ylabel("solve seconds")
+        lines, labels_1 = ax.get_legend_handles_labels()
+        lines_2, labels_2 = ax2.get_legend_handles_labels()
+        ax.legend(lines + lines_2, labels_1 + labels_2, loc="best")
+        fig.tight_layout()
+        fig.savefig(FIG_DIR / f"ofat_{name}.png", dpi=150)
+        plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.scatter(combined["solve_seconds"], combined["rmse_bellman"], s=55)
+    for row in combined.itertuples(index=False):
+        ax.annotate(row.config_id, (row.solve_seconds, row.rmse_bellman), xytext=(4, 4), textcoords="offset points", fontsize=8)
+    ax.set_xlabel("solve seconds")
+    ax.set_ylabel("Bellman RMSE")
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(FIG_DIR / "combined_accuracy_vs_cost.png", dpi=150)
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.bar(final_metrics["strategy"], final_metrics["rmse"])
+    ax.set_ylabel("terminal hedging RMSE")
+    ax.tick_params(axis="x", rotation=20)
+    fig.tight_layout()
+    fig.savefig(FIG_DIR / "final_common_path_rmse.png", dpi=150)
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.hist(cash_samples, bins=100, density=True, alpha=0.55, label="pilot cash states")
+    grid = selected_solution["b_grid"]
+    ax.vlines(grid, 0.0, ax.get_ylim()[1] * 0.12, color="tab:red", alpha=0.25, linewidth=0.7, label="cash grid")
+    ax.set_xlabel("cash state b")
+    ax.set_ylabel("density")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(FIG_DIR / "cash_state_occupancy_and_grid.png", dpi=150)
+    plt.close(fig)
+
+
+def run_experiment():
+    """Reproducible lambda>0 refinement study; the lambda=0 branch is untouched."""
+    ensure_dirs()
+    started = time.perf_counter()
+    sweep_times, sweep_paths = simulate_gbm_paths(n_paths=3000, n_steps=252, seed=SEED, mu=MU)
+    _, pilot, states, quantiles, q_centers = pilot_state_audit(sweep_paths[:2000], sweep_times)
+    states.to_csv(RESULT_DIR / "state_occupancy_pilot.csv", index=False)
+    quantiles.to_csv(RESULT_DIR / "state_occupancy_quantiles.csv", index=False)
+    write_json(
+        RESULT_DIR / "pilot_metadata.json",
+        {"seed": SEED, "n_paths": 2000, "boundary_centers": q_centers, "pilot_diagnostics": pilot["diagnostics"]},
+    )
+
+    sweeps = run_cost_convergence_sweeps(
+        sweep_times,
+        sweep_paths[:2000],
+        states["cash"].to_numpy(),
+        q_centers,
+        n_paths=2000,
+    )
+    output_names = {
+        "q": "convergence_costs_q.csv",
+        "S": "convergence_costs_S.csv",
+        "cash": "convergence_costs_cash.csv",
+        "time": "convergence_costs_time.csv",
+        "quadrature": "convergence_costs_quadrature.csv",
+        "interpolation": "interpolation_cost_diagnostics.csv",
+        "action": "convergence_costs_action.csv",
+        "S_mode": "convergence_costs_S_mode.csv",
+        "q_mode": "convergence_costs_q_mode.csv",
+        "action_mode": "convergence_costs_action_mode.csv",
+        "control_eval": "convergence_costs_control_eval.csv",
+    }
+    for name, frame in sweeps.items():
+        frame.to_csv(RESULT_DIR / output_names[name], index=False)
+
+    combined = evaluate_combined_configurations(
+        sweep_times,
+        sweep_paths,
+        states["cash"].to_numpy(),
+        q_centers,
+        n_paths=3000,
+    )
+    combined.to_csv(RESULT_DIR / "combined_configurations.csv", index=False)
+    eligible = combined[~combined["config_id"].eq("reference_OFAT")]
+    best_id = str(eligible.sort_values(["rmse_bellman", "solve_seconds"]).iloc[0]["config_id"])
+    best_config = next(config for config in combined_cost_configurations() if config["config_id"] == best_id)
+    write_json(RESULT_DIR / "best_cost_config.json", best_config)
+
+    final_metrics, final_errors, solution, bell, final_row = run_final_cost_validation(
+        best_config,
+        states["cash"].to_numpy(),
+        q_centers,
+        n_paths=N_PATHS_BACKTEST,
+    )
+    final_metrics.to_csv(RESULT_DIR / "final_validation_metrics.csv", index=False)
+    final_errors.to_csv(RESULT_DIR / "final_validation_terminal_errors.csv", index=False)
+    classify_policy(solution).to_csv(RESULT_DIR / "best_policy_hold_regions.csv", index=False)
+    save_policy_slices(solution).to_csv(RESULT_DIR / "best_policy_slices.csv", index=False)
+    combined[[
+        "config_id", "rmse_bellman", "solve_seconds", "HOLD_fraction", "HOLD_width",
+        "fraction_near_boundaries", "fraction_s_outside_grid", "fraction_cash_outside_grid",
+        "fraction_transition_s_outside_grid", "fraction_transition_cash_outside_grid",
+    ]].to_csv(RESULT_DIR / "policy_stability.csv", index=False)
+    plot_cost_refinement_results(sweeps, combined, final_metrics, states["cash"].to_numpy(), solution)
+
+    bell_final = final_metrics[final_metrics["strategy"].eq("bellman_costs_selected")].iloc[0]
+    delta_final = final_metrics[final_metrics["strategy"].eq("delta_bs_same_frequency")].iloc[0]
+    summary = {
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "runtime_seconds": time.perf_counter() - started,
+        "lambda": 0.002,
+        "seed": SEED,
+        "sweep_paths": 2000,
+        "selection_paths": 3000,
+        "final_paths": N_PATHS_BACKTEST,
+        "financial_formulation_unchanged": {"state": ["S", "b", "q"], "cost": "lambda*S*abs(a-q)", "objective": "E[(W_T-H)^2]"},
+        "black_scholes_use": "benchmark and financially justified initial endowment only; never used by solve_bellman or action selection",
+        "selected_config": best_config,
+        "selected_final_diagnostics": final_row,
+        "bellman_rmse": float(bell_final["rmse"]),
+        "delta_same_frequency_rmse": float(delta_final["rmse"]),
+        "bellman_to_delta_rmse_ratio": float(bell_final["rmse"] / delta_final["rmse"]),
+        "ofat_bottleneck": "time and cash resolution; state-q, stock, action and quadrature largely plateau at the tested base",
+        "continuous_control_decision": "rejected: negligible RMSE change with a large HOLD-frequency change",
+        "quadratic_cash_decision": "rejected: unstable on non-uniform empirical cash grids",
+        "combined_configurations": combined.to_dict(orient="records"),
+        "final_metrics": final_metrics.to_dict(orient="records"),
+    }
+    write_json(RESULT_DIR / "summary_cost_refinement.json", summary)
+    write_json(
+        RESULT_DIR / "config_cost_refinement.json",
+        {"seed": SEED, "common_paths": True, "sweep_base": {"N": 8, "Ns": 31, "Nb": 31, "Nq": 17, "Na": 33, "n_quad": 3}},
+    )
+    print(json.dumps(summary, indent=2))
+    return solution, final_metrics, summary
 
 
 if __name__ == "__main__":
